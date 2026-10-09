@@ -1,0 +1,26 @@
+{
+  "videoType": "real-estate-listing",
+  "goal": "Generate qualified viewing requests",
+  "aspectRatio": "9:16",
+  "durationSec": 30,
+  "audience": "First-time buyers seeking a city apartment",
+  "keyMessage": "A light-filled two-bedroom home close to transit.",
+  "cta": "Book a private viewing today",
+  "assetUrls": ["https://assets.example.com/listings/harbor-loft/hero.jpg"],
+  "voiceover": true,
+  "details": {
+    "listingType": "For sale",
+    "propertyType": "Apartment",
+    "price": 725000,
+    "currency": "USD",
+    "location": "Harbor District, Seattle",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "areaSize": 112,
+    "areaUnit": "sqm",
+    "keyFeatures": ["Water views", "Rooftop terrace", "Secure parking"],
+    "agentName": "Maya Chen",
+    "agentPhone": "+1-206-555-0142",
+    "agencyName": "Harbor & Key Realty"
+  }
+}

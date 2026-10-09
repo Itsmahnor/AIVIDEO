@@ -2,7 +2,7 @@
 /******/ 	"use strict";
 /******/ 	var __webpack_modules__ = ({
 
-/***/ 8675
+/***/ 4184
 (__unused_webpack_module, __unused_webpack___webpack_exports__, __webpack_require__) {
 
 
@@ -608,6 +608,193 @@ var loadVariableFont = (style, options) => {
 
 // EXTERNAL MODULE: ../../node_modules/zod/v4/classic/schemas.js
 var schemas = __webpack_require__(3616);
+;// ../schema/src/brand-kit.ts
+
+
+const hexColorSchema = schemas.string().regex(/^#[0-9A-Fa-f]{6}$/, "Expected a 6-digit hex color");
+const brandKitSchema = schemas.object({
+  name: schemas.string().min(1),
+  logoUrl: schemas.string().url(),
+  colors: schemas.object({
+    primary: hexColorSchema,
+    secondary: hexColorSchema,
+    accent: hexColorSchema,
+    background: hexColorSchema,
+    text: hexColorSchema
+  }),
+  fonts: schemas.object({
+    heading: schemas.string().min(1),
+    body: schemas.string().min(1)
+  }),
+  tone: schemas.string().min(1),
+  motionStyle: schemas["enum"](["calm", "energetic", "playful", "corporate"]),
+  rules: schemas.object({
+    dos: schemas.array(schemas.string()),
+    donts: schemas.array(schemas.string())
+  })
+});
+
+;// ../schema/src/niche.ts
+
+
+const VIDEO_TYPES = ["real-estate-listing"];
+const NICHE_FIELDS = {
+  "real-estate-listing": [
+    "listingType",
+    "propertyType",
+    "price",
+    "currency",
+    "location",
+    "bedrooms",
+    "bathrooms",
+    "areaSize",
+    "areaUnit",
+    "keyFeatures",
+    "agentName",
+    "agentPhone",
+    "agencyName"
+  ]
+};
+const realEstateListingSchema = schemas.object({
+  listingType: schemas.string(),
+  propertyType: schemas.string(),
+  price: schemas.number().nonnegative(),
+  currency: schemas.string(),
+  location: schemas.string(),
+  bedrooms: schemas.number().nonnegative(),
+  bathrooms: schemas.number().nonnegative(),
+  areaSize: schemas.number().positive(),
+  areaUnit: schemas.string(),
+  keyFeatures: schemas.array(schemas.string()),
+  agentName: schemas.string(),
+  agentPhone: schemas.string(),
+  agencyName: schemas.string()
+});
+
+;// ../schema/src/brief.ts
+
+
+
+const aspectRatioSchema = schemas["enum"](["9:16", "1:1", "16:9"]);
+const briefBaseSchema = schemas.object({
+  goal: schemas.string().min(1),
+  aspectRatio: aspectRatioSchema,
+  durationSec: schemas.number().positive(),
+  audience: schemas.string().min(1),
+  keyMessage: schemas.string().min(1),
+  cta: schemas.string().min(1),
+  assetUrls: schemas.array(schemas.string().url()),
+  voiceover: schemas.boolean()
+});
+const briefSchema = schemas.discriminatedUnion("videoType", [
+  briefBaseSchema.extend({
+    videoType: schemas.literal(VIDEO_TYPES[0]),
+    details: realEstateListingSchema
+  })
+]);
+
+;// ../schema/src/scene-json.ts
+
+
+const transitionOutSchema = schemas.object({
+  type: schemas["enum"](["fade", "slide", "wipe", "none"]),
+  durationInFrames: schemas.number().int().nonnegative()
+}).superRefine(({ durationInFrames, type }, context) => {
+  if (type === "none" && durationInFrames !== 0) {
+    context.addIssue({
+      code: "custom",
+      message: 'durationInFrames must be 0 when transition type is "none"',
+      path: ["durationInFrames"]
+    });
+  }
+});
+const sceneSchema = schemas.object({
+  id: schemas.string().min(1),
+  template: schemas.string().min(1),
+  durationInFrames: schemas.number().int().positive(),
+  props: schemas.record(schemas.string(), schemas.unknown()),
+  transitionOut: transitionOutSchema.default({ type: "none", durationInFrames: 0 })
+});
+const captionSchema = schemas.object({
+  text: schemas.string().min(1),
+  startMs: schemas.number().nonnegative(),
+  endMs: schemas.number().nonnegative()
+}).refine(({ endMs, startMs }) => endMs > startMs, "endMs must be after startMs");
+const sceneJsonSchema = schemas.object({
+  version: schemas.literal(1),
+  meta: schemas.object({
+    fps: schemas.number().int().positive(),
+    width: schemas.number().int().positive(),
+    height: schemas.number().int().positive()
+  }),
+  scenes: schemas.array(sceneSchema).min(1),
+  audio: schemas.object({
+    voiceoverUrl: schemas.string().min(1).optional(),
+    musicUrl: schemas.string().min(1).optional()
+  }).default({}),
+  captions: schemas.array(captionSchema).default([])
+}).superRefine(({ scenes }, context) => {
+  const sceneIds = /* @__PURE__ */ new Set();
+  scenes.forEach((scene, index) => {
+    if (sceneIds.has(scene.id)) {
+      context.addIssue({
+        code: "custom",
+        message: `Scene id "${scene.id}" must be unique`,
+        path: ["scenes", index, "id"]
+      });
+    }
+    sceneIds.add(scene.id);
+    const transitionDuration = scene.transitionOut.durationInFrames;
+    if (transitionDuration >= scene.durationInFrames) {
+      context.addIssue({
+        code: "custom",
+        message: "transitionOut.durationInFrames must be smaller than its scene durationInFrames",
+        path: ["scenes", index, "transitionOut", "durationInFrames"]
+      });
+    }
+    const nextScene = scenes[index + 1];
+    if (nextScene && transitionDuration >= nextScene.durationInFrames) {
+      context.addIssue({
+        code: "custom",
+        message: "transitionOut.durationInFrames must be smaller than the next scene durationInFrames",
+        path: ["scenes", index, "transitionOut", "durationInFrames"]
+      });
+    }
+    if (!nextScene && scene.transitionOut.type !== "none") {
+      context.addIssue({
+        code: "custom",
+        message: 'The last scene transitionOut type must be "none"',
+        path: ["scenes", index, "transitionOut", "type"]
+      });
+    }
+  });
+});
+const getTotalDurationInFrames = (sceneJson) => sceneJson.scenes.reduce(
+  (total, scene) => total + scene.durationInFrames - scene.transitionOut.durationInFrames,
+  0
+);
+const createSceneJsonSchema = (templateSchemas) => sceneJsonSchema.superRefine(({ scenes }, context) => {
+  scenes.forEach((scene, index) => {
+    const propsSchema = templateSchemas[scene.template];
+    if (!propsSchema) {
+      context.addIssue({
+        code: "custom",
+        message: `No props schema registered for template "${scene.template}"`,
+        path: ["scenes", index, "template"]
+      });
+      return;
+    }
+    const result = propsSchema.safeParse(scene.props);
+    if (!result.success) {
+      context.addIssue({
+        code: "custom",
+        message: `Invalid props for template "${scene.template}": ${result.error.issues.map((issue) => `${issue.path.join(".") || "root"}: ${issue.message}`).join(", ")}`,
+        path: ["scenes", index, "props"]
+      });
+    }
+  });
+});
+
 ;// ../schema/src/index.ts
 
 
@@ -624,6 +811,10 @@ const testCompositionSchema = schemas.object({
   title: schemas.string(),
   theme: brandThemeSchema
 });
+
+
+
+
 
 ;// ./src/TestComposition.tsx
 
@@ -647,7 +838,1893 @@ const TestComposition = ({ title, theme }) => {
   );
 };
 
+;// ../schema/src/fixtures/brand-kit.json
+const fixtures_brand_kit_namespaceObject = /*#__PURE__*/JSON.parse('{"name":"Harbor & Key Realty","logoUrl":"https://assets.example.com/harbor-key-logo.svg","colors":{"primary":"#123456","secondary":"#2C5F7C","accent":"#F4A261","background":"#F8FAFC","text":"#102A43"},"fonts":{"heading":"Playfair Display","body":"Inter"},"tone":"Confident, warm, and local","motionStyle":"calm","rules":{"dos":["Lead with the property lifestyle","Use concise benefit-led language"],"donts":["Use pressure tactics","Overpromise property features"]}}');
+;// ../schema/src/fixtures/brand-kit-dark.json
+const brand_kit_dark_namespaceObject = /*#__PURE__*/JSON.parse('{"name":"Nightfall Properties","logoUrl":"https://assets.example.com/nightfall-properties-logo.svg","colors":{"primary":"#7DD3FC","secondary":"#38BDF8","accent":"#FBBF24","background":"#0F172A","text":"#F8FAFC"},"fonts":{"heading":"Montserrat","body":"Inter"},"tone":"Polished, exclusive, and direct","motionStyle":"corporate","rules":{"dos":["Use measured confidence","Keep layouts spacious"],"donts":["Use cluttered visual treatments","Use casual slang"]}}');
+;// ./src/tokens/color.ts
+
+const contrastMinimum = 4.5;
+const colorFallbacks = { light: "#FFFFFF", dark: "#000000" };
+const hexToRgb = (hex) => {
+  const normalized = hex.replace("#", "");
+  const expanded = normalized.length === 3 ? normalized.split("").map((value) => value.repeat(2)).join("") : normalized;
+  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) throw new Error(`Expected a hex color, received "${hex}"`);
+  return {
+    red: Number.parseInt(expanded.slice(0, 2), 16),
+    green: Number.parseInt(expanded.slice(2, 4), 16),
+    blue: Number.parseInt(expanded.slice(4, 6), 16)
+  };
+};
+const toHex = ({ red, green, blue }) => `#${[red, green, blue].map((channel) => Math.round(Math.min(255, Math.max(0, channel))).toString(16).padStart(2, "0")).join("")}`;
+const relativeLuminance = (hex) => {
+  const { blue, green, red } = hexToRgb(hex);
+  const linearize = (channel) => {
+    const normalized = channel / 255;
+    return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * linearize(red) + 0.7152 * linearize(green) + 0.0722 * linearize(blue);
+};
+const getContrastRatio = (first, second) => {
+  const [lighter, darker] = [relativeLuminance(first), relativeLuminance(second)].sort((a, b) => b - a);
+  return (lighter + 0.05) / (darker + 0.05);
+};
+const getReadableTextColor = (background, preferred) => {
+  if (getContrastRatio(background, preferred) >= contrastMinimum) return preferred;
+  const lightContrast = getContrastRatio(background, colorFallbacks.light);
+  const darkContrast = getContrastRatio(background, colorFallbacks.dark);
+  return lightContrast >= darkContrast ? colorFallbacks.light : colorFallbacks.dark;
+};
+const withOpacity = (hex, alpha) => {
+  const { blue, green, red } = hexToRgb(hex);
+  return `rgba(${red}, ${green}, ${blue}, ${Math.min(1, Math.max(0, alpha))})`;
+};
+const mix = (hex, target, amount) => {
+  const source = hexToRgb(hex);
+  const destination = hexToRgb(target);
+  const ratio = Math.min(1, Math.max(0, amount));
+  return toHex({
+    red: source.red + (destination.red - source.red) * ratio,
+    green: source.green + (destination.green - source.green) * ratio,
+    blue: source.blue + (destination.blue - source.blue) * ratio
+  });
+};
+const lighten = (hex, amount) => mix(hex, colorFallbacks.light, amount);
+const darken = (hex, amount) => mix(hex, colorFallbacks.dark, amount);
+
+;// ./src/tokens/layout.ts
+
+
+const aspectRatioConfigs = {
+  "9:16": {
+    width: 1080,
+    height: 1920,
+    safeZone: { top: 0.14, bottom: 0.2, horizontal: 0.06 }
+  },
+  "1:1": {
+    width: 1080,
+    height: 1080,
+    safeZone: { top: 0.08, bottom: 0.08, horizontal: 0.06 }
+  },
+  "16:9": {
+    width: 1920,
+    height: 1080,
+    safeZone: { top: 0.07, bottom: 0.07, horizontal: 0.05 }
+  }
+};
+const spacingGridUnit = 8;
+const spacingMultipliers = { xs: 1, sm: 2, md: 3, lg: 4, xl: 6, xxl: 8 };
+const referenceShortSide = aspectRatioConfigs["1:1"].width;
+const previewLayoutTokens = {
+  sectionGapMultiplier: 1,
+  swatchMinWidthMultiplier: 10,
+  springDemoCount: 3,
+  borderWidth: 1,
+  cardRadiusMultiplier: 1
+};
+const getAspectRatio = (width, height) => {
+  if (width === height) return "1:1";
+  return height > width ? "9:16" : "16:9";
+};
+const getSpacing = (width, height) => {
+  const scale = Math.min(width, height) / referenceShortSide;
+  return Object.fromEntries(
+    Object.entries(spacingMultipliers).map(([name, multiplier]) => [name, spacingGridUnit * multiplier * scale])
+  );
+};
+const useLayout = () => {
+  const { height, width } = (0,esm.useVideoConfig)();
+  const ratio = getAspectRatio(width, height);
+  const safeZone = aspectRatioConfigs[ratio].safeZone;
+  const safeArea = {
+    top: height * safeZone.top,
+    right: width * safeZone.horizontal,
+    bottom: height * safeZone.bottom,
+    left: width * safeZone.horizontal
+  };
+  return {
+    ratio,
+    width,
+    height,
+    safeArea,
+    spacing: getSpacing(width, height),
+    isPortrait: height > width
+  };
+};
+
+;// ./src/tokens/motion.ts
+/* unused harmony import specifier */ var interpolate;
+
+
+const springPresets = {
+  snappy: { damping: 16, stiffness: 240, mass: 0.7 },
+  smooth: { damping: 22, stiffness: 120, mass: 1 },
+  bouncy: { damping: 10, stiffness: 180, mass: 0.8 }
+};
+const easingCurves = {
+  enter: esm.Easing.bezier(0.16, 1, 0.3, 1),
+  exit: esm.Easing.bezier(0.7, 0, 0.84, 0),
+  emphasis: esm.Easing.bezier(0.34, 1.56, 0.64, 1)
+};
+const staggerPresets = { fast: 4, normal: 8, slow: 15 };
+const standardFps = 30;
+const standardDurations = { quick: 8, normal: 15, slow: 30, hold: 45 };
+const percentageScale = 100;
+const staggerDelay = (index, stepInFrames) => index * stepInFrames;
+const enterProgress = ({
+  frame,
+  fps,
+  delay,
+  preset
+}) => Math.min(1, Math.max(0, (0,esm.spring)({ frame: Math.max(0, frame - delay), fps, config: springPresets[preset] })));
+const exitProgress = ({
+  frame,
+  durationInFrames,
+  exitFrames
+}) => interpolate(frame, [durationInFrames - exitFrames, durationInFrames], [1, 0], {
+  extrapolateLeft: "clamp",
+  extrapolateRight: "clamp"
+});
+const motionStyleMap = {
+  calm: { springPreset: "smooth", staggerPreset: "slow", transitionType: "fade" },
+  energetic: { springPreset: "snappy", staggerPreset: "fast", transitionType: "slide" },
+  playful: { springPreset: "bouncy", staggerPreset: "normal", transitionType: "wipe" },
+  corporate: { springPreset: "smooth", staggerPreset: "normal", transitionType: "fade" }
+};
+
+;// ../../node_modules/@remotion/google-fonts/dist/esm/from-info.mjs
+/* unused harmony import specifier */ var from_info_delayRender;
+/* unused harmony import specifier */ var from_info_continueRender;
+/* unused harmony import specifier */ var from_info_NoReactInternals;
+// src/base.ts
+
+
+
+// src/resolve-font-subsets.ts
+var from_info_isChunkSubset = (subset) => /^\[\d+\]$/.test(subset);
+var from_info_compareChunkSubsets = (a, b) => {
+  return Number(a.slice(1, -1)) - Number(b.slice(1, -1));
+};
+var from_info_resolveFontSubsetKeys = ({
+  availableSubsetKeys,
+  metaSubsets,
+  requestedSubset
+}) => {
+  if (availableSubsetKeys.includes(requestedSubset)) {
+    return [requestedSubset];
+  }
+  if (!metaSubsets.includes(requestedSubset)) {
+    return [requestedSubset];
+  }
+  const chunkSubsets = availableSubsetKeys.filter(from_info_isChunkSubset).sort(from_info_compareChunkSubsets);
+  return chunkSubsets.length === 0 ? [requestedSubset] : chunkSubsets;
+};
+
+// src/base.ts
+var from_info_loadedFonts = {};
+var from_info_withResolvers = function() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+var from_info_loadFontFaceOrTimeoutAfter20Seconds = (fontFace) => {
+  const timeout = from_info_withResolvers();
+  const int = setTimeout(() => {
+    timeout.reject(new Error("Timed out loading Google Font"));
+  }, 18000);
+  return Promise.race([
+    fontFace.load().then(() => {
+      clearTimeout(int);
+    }),
+    timeout.promise
+  ]);
+};
+var from_info_loadFonts = (meta, style, options) => {
+  const weightsAndSubsetsAreSpecified = Array.isArray(options?.weights) && Array.isArray(options?.subsets) && options.weights.length > 0 && options.subsets.length > 0;
+  if (no_react/* NoReactInternals */.JC.ENABLE_V5_BREAKING_CHANGES && !weightsAndSubsetsAreSpecified) {
+    throw new Error("Loading Google Fonts without specifying weights and subsets is not supported in Remotion v5. Please specify the weights and subsets you need.");
+  }
+  const promises = [];
+  const styles = style ? [style] : Object.keys(meta.fonts);
+  let fontsLoaded = 0;
+  for (const style2 of styles) {
+    if (typeof FontFace === "undefined") {
+      continue;
+    }
+    if (!meta.fonts[style2]) {
+      throw new Error(`The font ${meta.fontFamily} does not have a style ${style2}`);
+    }
+    const weights = options?.weights ?? Object.keys(meta.fonts[style2]);
+    for (const weight of weights) {
+      if (!meta.fonts[style2][weight]) {
+        throw new Error(`The font ${meta.fontFamily} does not  have a weight ${weight} in style ${style2}`);
+      }
+      const requestedSubsets = options?.subsets ?? Object.keys(meta.fonts[style2][weight]);
+      const availableSubsetKeys = Object.keys(meta.fonts[style2][weight]);
+      const subsets = [
+        ...new Set(requestedSubsets.flatMap((requestedSubset) => from_info_resolveFontSubsetKeys({
+          availableSubsetKeys,
+          metaSubsets: meta.subsets,
+          requestedSubset
+        })))
+      ];
+      for (const subset of subsets) {
+        let font = meta.fonts[style2]?.[weight]?.[subset];
+        if (!font) {
+          throw new Error(`weight: ${weight} subset: ${subset} is not available for '${meta.fontFamily}'`);
+        }
+        let fontKey = `${meta.fontFamily}-${style2}-${weight}-${subset}`;
+        const previousPromise = from_info_loadedFonts[fontKey];
+        if (previousPromise) {
+          promises.push(previousPromise);
+          continue;
+        }
+        const baseLabel = `Fetching ${meta.fontFamily} font ${JSON.stringify({
+          style: style2,
+          weight,
+          subset
+        })}`;
+        const label = weightsAndSubsetsAreSpecified ? baseLabel : `${baseLabel}. This might be caused by loading too many font variations. Read more: https://www.remotion.dev/docs/troubleshooting/font-loading-errors#render-timeout-when-loading-google-fonts`;
+        const handle = (0,esm.delayRender)(label, { timeoutInMilliseconds: 60000 });
+        fontsLoaded++;
+        const registerFont = (fontData) => {
+          no_react/* NoReactInternals */.JC.registerFontFace({
+            ascentOverride: null,
+            descentOverride: null,
+            display: null,
+            featureSettings: null,
+            fontFamily: meta.fontFamily,
+            fontData,
+            fontUrl: font,
+            format: "woff2",
+            lineGapOverride: null,
+            style: style2,
+            weight,
+            stretch: null,
+            unicodeRange: meta.unicodeRanges[subset] ?? null,
+            variant: null
+          });
+        };
+        let attempts = 2;
+        const tryToLoad = () => {
+          return no_react/* NoReactInternals */.JC.fetchFontData(font).then((fontData) => {
+            const fontFace = new FontFace(meta.fontFamily, fontData, {
+              weight,
+              style: style2,
+              unicodeRange: meta.unicodeRanges[subset]
+            });
+            return from_info_loadFontFaceOrTimeoutAfter20Seconds(fontFace).then(() => {
+              (options?.document ?? document).fonts.add(fontFace);
+              registerFont(fontData);
+              (0,esm.continueRender)(handle);
+            });
+          }).catch((err) => {
+            if (attempts === 0) {
+              from_info_loadedFonts[fontKey] = undefined;
+              throw err;
+            }
+            attempts--;
+            return tryToLoad();
+          });
+        };
+        const promise = tryToLoad();
+        from_info_loadedFonts[fontKey] = promise;
+        promises.push(promise);
+      }
+    }
+    if (fontsLoaded > 20 && !options?.ignoreTooManyRequestsWarning) {
+      console.warn(`Made ${fontsLoaded} network requests to load fonts for ${meta.fontFamily}. Consider loading fewer weights and subsets by passing options to loadFont(). Disable this warning by passing "ignoreTooManyRequestsWarning: true" to "options".`);
+    }
+  }
+  return {
+    fontFamily: meta.fontFamily,
+    fonts: meta.fonts,
+    unicodeRanges: meta.unicodeRanges,
+    waitUntilDone: () => Promise.all(promises).then(() => {
+      return;
+    })
+  };
+};
+var from_info_loadVariableFonts = (meta, style, options) => {
+  if (!meta.variable) {
+    throw new Error(`${meta.fontFamily} is not available as a variable font`);
+  }
+  if (options.subsets.length === 0) {
+    throw new Error("Pass at least one subset to loadVariableFont()");
+  }
+  const fontFacesForStyle = meta.variable.fontFaces.filter((fontFace) => fontFace.style === style);
+  if (fontFacesForStyle.length === 0) {
+    throw new Error(`The variable font ${meta.fontFamily} does not have a style ${style}`);
+  }
+  const availableSubsetKeys = fontFacesForStyle.map((fontFace) => fontFace.subset);
+  const subsets = [
+    ...new Set(options.subsets.flatMap((requestedSubset) => from_info_resolveFontSubsetKeys({
+      availableSubsetKeys,
+      metaSubsets: meta.subsets,
+      requestedSubset
+    })))
+  ];
+  const promises = [];
+  for (const subset of subsets) {
+    if (typeof FontFace === "undefined") {
+      continue;
+    }
+    const font = fontFacesForStyle.find((fontFace) => fontFace.subset === subset);
+    if (!font) {
+      throw new Error(`subset: ${subset} is not available for the variable font '${meta.fontFamily}'`);
+    }
+    const fontKey = [
+      meta.fontFamily,
+      "variable",
+      font.style,
+      font.weight,
+      font.stretch,
+      font.subset,
+      font.src
+    ].join("-");
+    const previousPromise = from_info_loadedFonts[fontKey];
+    if (previousPromise) {
+      promises.push(previousPromise);
+      continue;
+    }
+    const handle = from_info_delayRender(`Fetching variable ${meta.fontFamily} font ${JSON.stringify({
+      style,
+      subset
+    })}`, { timeoutInMilliseconds: 60000 });
+    const descriptors = {
+      style: font.style,
+      weight: font.weight,
+      unicodeRange: font.unicodeRange
+    };
+    if (font.stretch) {
+      descriptors.stretch = font.stretch;
+    }
+    const registerFont = (fontData) => {
+      from_info_NoReactInternals.registerFontFace({
+        ascentOverride: null,
+        descentOverride: null,
+        display: null,
+        featureSettings: null,
+        fontFamily: meta.fontFamily,
+        fontData,
+        fontUrl: font.src,
+        format: "woff2",
+        lineGapOverride: null,
+        style: font.style,
+        weight: font.weight,
+        stretch: font.stretch,
+        unicodeRange: font.unicodeRange,
+        variant: null
+      });
+    };
+    let attempts = 2;
+    const tryToLoad = () => {
+      return from_info_NoReactInternals.fetchFontData(font.src).then((fontData) => {
+        const fontFace = new FontFace(meta.fontFamily, fontData, descriptors);
+        return from_info_loadFontFaceOrTimeoutAfter20Seconds(fontFace).then(() => {
+          (options.document ?? document).fonts.add(fontFace);
+          registerFont(fontData);
+          from_info_continueRender(handle);
+        });
+      }).catch((err) => {
+        if (attempts === 0) {
+          from_info_loadedFonts[fontKey] = undefined;
+          throw err;
+        }
+        attempts--;
+        return tryToLoad();
+      });
+    };
+    const promise = tryToLoad();
+    from_info_loadedFonts[fontKey] = promise;
+    promises.push(promise);
+  }
+  if (subsets.length > 20 && !options.ignoreTooManyRequestsWarning) {
+    console.warn(`Made ${subsets.length} network requests to load the variable font ${meta.fontFamily}. Consider loading fewer subsets. Disable this warning by passing "ignoreTooManyRequestsWarning: true" to "options".`);
+  }
+  return {
+    fontFamily: meta.fontFamily,
+    axes: meta.variable.axes,
+    waitUntilDone: () => Promise.all(promises).then(() => {
+      return;
+    })
+  };
+};
+
+// src/from-info.ts
+var loadFontFromInfo = from_info_loadFonts;
+var loadVariableFontFromInfo = (/* unused pure expression or super */ null && (from_info_loadVariableFonts));
+
+
+;// ../../node_modules/@remotion/google-fonts/dist/esm/Montserrat.mjs
+/* unused harmony import specifier */ var Montserrat_delayRender;
+/* unused harmony import specifier */ var Montserrat_continueRender;
+/* unused harmony import specifier */ var Montserrat_NoReactInternals;
+// src/base.ts
+
+
+
+// src/resolve-font-subsets.ts
+var Montserrat_isChunkSubset = (subset) => /^\[\d+\]$/.test(subset);
+var Montserrat_compareChunkSubsets = (a, b) => {
+  return Number(a.slice(1, -1)) - Number(b.slice(1, -1));
+};
+var Montserrat_resolveFontSubsetKeys = ({
+  availableSubsetKeys,
+  metaSubsets,
+  requestedSubset
+}) => {
+  if (availableSubsetKeys.includes(requestedSubset)) {
+    return [requestedSubset];
+  }
+  if (!metaSubsets.includes(requestedSubset)) {
+    return [requestedSubset];
+  }
+  const chunkSubsets = availableSubsetKeys.filter(Montserrat_isChunkSubset).sort(Montserrat_compareChunkSubsets);
+  return chunkSubsets.length === 0 ? [requestedSubset] : chunkSubsets;
+};
+
+// src/base.ts
+var Montserrat_loadedFonts = {};
+var Montserrat_withResolvers = function() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+var Montserrat_loadFontFaceOrTimeoutAfter20Seconds = (fontFace) => {
+  const timeout = Montserrat_withResolvers();
+  const int = setTimeout(() => {
+    timeout.reject(new Error("Timed out loading Google Font"));
+  }, 18000);
+  return Promise.race([
+    fontFace.load().then(() => {
+      clearTimeout(int);
+    }),
+    timeout.promise
+  ]);
+};
+var Montserrat_loadFonts = (meta, style, options) => {
+  const weightsAndSubsetsAreSpecified = Array.isArray(options?.weights) && Array.isArray(options?.subsets) && options.weights.length > 0 && options.subsets.length > 0;
+  if (Montserrat_NoReactInternals.ENABLE_V5_BREAKING_CHANGES && !weightsAndSubsetsAreSpecified) {
+    throw new Error("Loading Google Fonts without specifying weights and subsets is not supported in Remotion v5. Please specify the weights and subsets you need.");
+  }
+  const promises = [];
+  const styles = style ? [style] : Object.keys(meta.fonts);
+  let fontsLoaded = 0;
+  for (const style2 of styles) {
+    if (typeof FontFace === "undefined") {
+      continue;
+    }
+    if (!meta.fonts[style2]) {
+      throw new Error(`The font ${meta.fontFamily} does not have a style ${style2}`);
+    }
+    const weights = options?.weights ?? Object.keys(meta.fonts[style2]);
+    for (const weight of weights) {
+      if (!meta.fonts[style2][weight]) {
+        throw new Error(`The font ${meta.fontFamily} does not  have a weight ${weight} in style ${style2}`);
+      }
+      const requestedSubsets = options?.subsets ?? Object.keys(meta.fonts[style2][weight]);
+      const availableSubsetKeys = Object.keys(meta.fonts[style2][weight]);
+      const subsets = [
+        ...new Set(requestedSubsets.flatMap((requestedSubset) => Montserrat_resolveFontSubsetKeys({
+          availableSubsetKeys,
+          metaSubsets: meta.subsets,
+          requestedSubset
+        })))
+      ];
+      for (const subset of subsets) {
+        let font = meta.fonts[style2]?.[weight]?.[subset];
+        if (!font) {
+          throw new Error(`weight: ${weight} subset: ${subset} is not available for '${meta.fontFamily}'`);
+        }
+        let fontKey = `${meta.fontFamily}-${style2}-${weight}-${subset}`;
+        const previousPromise = Montserrat_loadedFonts[fontKey];
+        if (previousPromise) {
+          promises.push(previousPromise);
+          continue;
+        }
+        const baseLabel = `Fetching ${meta.fontFamily} font ${JSON.stringify({
+          style: style2,
+          weight,
+          subset
+        })}`;
+        const label = weightsAndSubsetsAreSpecified ? baseLabel : `${baseLabel}. This might be caused by loading too many font variations. Read more: https://www.remotion.dev/docs/troubleshooting/font-loading-errors#render-timeout-when-loading-google-fonts`;
+        const handle = Montserrat_delayRender(label, { timeoutInMilliseconds: 60000 });
+        fontsLoaded++;
+        const registerFont = (fontData) => {
+          Montserrat_NoReactInternals.registerFontFace({
+            ascentOverride: null,
+            descentOverride: null,
+            display: null,
+            featureSettings: null,
+            fontFamily: meta.fontFamily,
+            fontData,
+            fontUrl: font,
+            format: "woff2",
+            lineGapOverride: null,
+            style: style2,
+            weight,
+            stretch: null,
+            unicodeRange: meta.unicodeRanges[subset] ?? null,
+            variant: null
+          });
+        };
+        let attempts = 2;
+        const tryToLoad = () => {
+          return Montserrat_NoReactInternals.fetchFontData(font).then((fontData) => {
+            const fontFace = new FontFace(meta.fontFamily, fontData, {
+              weight,
+              style: style2,
+              unicodeRange: meta.unicodeRanges[subset]
+            });
+            return Montserrat_loadFontFaceOrTimeoutAfter20Seconds(fontFace).then(() => {
+              (options?.document ?? document).fonts.add(fontFace);
+              registerFont(fontData);
+              Montserrat_continueRender(handle);
+            });
+          }).catch((err) => {
+            if (attempts === 0) {
+              Montserrat_loadedFonts[fontKey] = undefined;
+              throw err;
+            }
+            attempts--;
+            return tryToLoad();
+          });
+        };
+        const promise = tryToLoad();
+        Montserrat_loadedFonts[fontKey] = promise;
+        promises.push(promise);
+      }
+    }
+    if (fontsLoaded > 20 && !options?.ignoreTooManyRequestsWarning) {
+      console.warn(`Made ${fontsLoaded} network requests to load fonts for ${meta.fontFamily}. Consider loading fewer weights and subsets by passing options to loadFont(). Disable this warning by passing "ignoreTooManyRequestsWarning: true" to "options".`);
+    }
+  }
+  return {
+    fontFamily: meta.fontFamily,
+    fonts: meta.fonts,
+    unicodeRanges: meta.unicodeRanges,
+    waitUntilDone: () => Promise.all(promises).then(() => {
+      return;
+    })
+  };
+};
+var Montserrat_loadVariableFonts = (meta, style, options) => {
+  if (!meta.variable) {
+    throw new Error(`${meta.fontFamily} is not available as a variable font`);
+  }
+  if (options.subsets.length === 0) {
+    throw new Error("Pass at least one subset to loadVariableFont()");
+  }
+  const fontFacesForStyle = meta.variable.fontFaces.filter((fontFace) => fontFace.style === style);
+  if (fontFacesForStyle.length === 0) {
+    throw new Error(`The variable font ${meta.fontFamily} does not have a style ${style}`);
+  }
+  const availableSubsetKeys = fontFacesForStyle.map((fontFace) => fontFace.subset);
+  const subsets = [
+    ...new Set(options.subsets.flatMap((requestedSubset) => Montserrat_resolveFontSubsetKeys({
+      availableSubsetKeys,
+      metaSubsets: meta.subsets,
+      requestedSubset
+    })))
+  ];
+  const promises = [];
+  for (const subset of subsets) {
+    if (typeof FontFace === "undefined") {
+      continue;
+    }
+    const font = fontFacesForStyle.find((fontFace) => fontFace.subset === subset);
+    if (!font) {
+      throw new Error(`subset: ${subset} is not available for the variable font '${meta.fontFamily}'`);
+    }
+    const fontKey = [
+      meta.fontFamily,
+      "variable",
+      font.style,
+      font.weight,
+      font.stretch,
+      font.subset,
+      font.src
+    ].join("-");
+    const previousPromise = Montserrat_loadedFonts[fontKey];
+    if (previousPromise) {
+      promises.push(previousPromise);
+      continue;
+    }
+    const handle = Montserrat_delayRender(`Fetching variable ${meta.fontFamily} font ${JSON.stringify({
+      style,
+      subset
+    })}`, { timeoutInMilliseconds: 60000 });
+    const descriptors = {
+      style: font.style,
+      weight: font.weight,
+      unicodeRange: font.unicodeRange
+    };
+    if (font.stretch) {
+      descriptors.stretch = font.stretch;
+    }
+    const registerFont = (fontData) => {
+      Montserrat_NoReactInternals.registerFontFace({
+        ascentOverride: null,
+        descentOverride: null,
+        display: null,
+        featureSettings: null,
+        fontFamily: meta.fontFamily,
+        fontData,
+        fontUrl: font.src,
+        format: "woff2",
+        lineGapOverride: null,
+        style: font.style,
+        weight: font.weight,
+        stretch: font.stretch,
+        unicodeRange: font.unicodeRange,
+        variant: null
+      });
+    };
+    let attempts = 2;
+    const tryToLoad = () => {
+      return Montserrat_NoReactInternals.fetchFontData(font.src).then((fontData) => {
+        const fontFace = new FontFace(meta.fontFamily, fontData, descriptors);
+        return Montserrat_loadFontFaceOrTimeoutAfter20Seconds(fontFace).then(() => {
+          (options.document ?? document).fonts.add(fontFace);
+          registerFont(fontData);
+          Montserrat_continueRender(handle);
+        });
+      }).catch((err) => {
+        if (attempts === 0) {
+          Montserrat_loadedFonts[fontKey] = undefined;
+          throw err;
+        }
+        attempts--;
+        return tryToLoad();
+      });
+    };
+    const promise = tryToLoad();
+    Montserrat_loadedFonts[fontKey] = promise;
+    promises.push(promise);
+  }
+  if (subsets.length > 20 && !options.ignoreTooManyRequestsWarning) {
+    console.warn(`Made ${subsets.length} network requests to load the variable font ${meta.fontFamily}. Consider loading fewer subsets. Disable this warning by passing "ignoreTooManyRequestsWarning: true" to "options".`);
+  }
+  return {
+    fontFamily: meta.fontFamily,
+    axes: meta.variable.axes,
+    waitUntilDone: () => Promise.all(promises).then(() => {
+      return;
+    })
+  };
+};
+
+// src/Montserrat.ts
+var Montserrat_getInfo = () => ({
+  fontFamily: "Montserrat",
+  importName: "Montserrat",
+  version: "v31",
+  url: "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100;0,200;0,300;0,400;0,500;0,600;0,700;0,800;0,900;1,100;1,200;1,300;1,400;1,500;1,600;1,700;1,800;1,900",
+  unicodeRanges: {
+    "cyrillic-ext": "U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F",
+    cyrillic: "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
+    vietnamese: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+    "latin-ext": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+    latin: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+  },
+  fonts: {
+    italic: {
+      "100": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "200": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "300": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "400": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "500": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "600": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "700": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "800": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      "900": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      }
+    },
+    normal: {
+      "100": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "200": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "300": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "400": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "500": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "600": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "700": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "800": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      },
+      "900": {
+        "cyrillic-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2",
+        cyrillic: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2",
+        latin: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      }
+    }
+  },
+  subsets: ["cyrillic", "cyrillic-ext", "latin", "latin-ext", "vietnamese"],
+  variable: {
+    axes: {
+      wght: {
+        min: 100,
+        max: 900
+      }
+    },
+    fontFaces: [
+      {
+        style: "italic",
+        weight: "100 900",
+        stretch: null,
+        subset: "cyrillic-ext",
+        unicodeRange: "U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxC7mw9c.woff2"
+      },
+      {
+        style: "italic",
+        weight: "100 900",
+        stretch: null,
+        subset: "cyrillic",
+        unicodeRange: "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRzS7mw9c.woff2"
+      },
+      {
+        style: "italic",
+        weight: "100 900",
+        stretch: null,
+        subset: "vietnamese",
+        unicodeRange: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxi7mw9c.woff2"
+      },
+      {
+        style: "italic",
+        weight: "100 900",
+        stretch: null,
+        subset: "latin-ext",
+        unicodeRange: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRxy7mw9c.woff2"
+      },
+      {
+        style: "italic",
+        weight: "100 900",
+        stretch: null,
+        subset: "latin",
+        unicodeRange: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUQjIg1_i6t8kCHKm459WxRyS7m.woff2"
+      },
+      {
+        style: "normal",
+        weight: "100 900",
+        stretch: null,
+        subset: "cyrillic-ext",
+        unicodeRange: "U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WRhyzbi.woff2"
+      },
+      {
+        style: "normal",
+        weight: "100 900",
+        stretch: null,
+        subset: "cyrillic",
+        unicodeRange: "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459W1hyzbi.woff2"
+      },
+      {
+        style: "normal",
+        weight: "100 900",
+        stretch: null,
+        subset: "vietnamese",
+        unicodeRange: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459WZhyzbi.woff2"
+      },
+      {
+        style: "normal",
+        weight: "100 900",
+        stretch: null,
+        subset: "latin-ext",
+        unicodeRange: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wdhyzbi.woff2"
+      },
+      {
+        style: "normal",
+        weight: "100 900",
+        stretch: null,
+        subset: "latin",
+        unicodeRange: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+        src: "https://fonts.gstatic.com/s/montserrat/v31/JTUSjIg1_i6t8kCHKm459Wlhyw.woff2"
+      }
+    ],
+    url: "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900"
+  }
+});
+var Montserrat_fontFamily = "Montserrat";
+var Montserrat_loadFont = (style, options) => {
+  return Montserrat_loadFonts(Montserrat_getInfo(), style, options);
+};
+var Montserrat_loadVariableFont = (style, options) => {
+  return Montserrat_loadVariableFonts(Montserrat_getInfo(), style, options);
+};
+
+
+;// ../../node_modules/@remotion/google-fonts/dist/esm/PlayfairDisplay.mjs
+/* unused harmony import specifier */ var PlayfairDisplay_delayRender;
+/* unused harmony import specifier */ var PlayfairDisplay_continueRender;
+/* unused harmony import specifier */ var PlayfairDisplay_NoReactInternals;
+// src/base.ts
+
+
+
+// src/resolve-font-subsets.ts
+var PlayfairDisplay_isChunkSubset = (subset) => /^\[\d+\]$/.test(subset);
+var PlayfairDisplay_compareChunkSubsets = (a, b) => {
+  return Number(a.slice(1, -1)) - Number(b.slice(1, -1));
+};
+var PlayfairDisplay_resolveFontSubsetKeys = ({
+  availableSubsetKeys,
+  metaSubsets,
+  requestedSubset
+}) => {
+  if (availableSubsetKeys.includes(requestedSubset)) {
+    return [requestedSubset];
+  }
+  if (!metaSubsets.includes(requestedSubset)) {
+    return [requestedSubset];
+  }
+  const chunkSubsets = availableSubsetKeys.filter(PlayfairDisplay_isChunkSubset).sort(PlayfairDisplay_compareChunkSubsets);
+  return chunkSubsets.length === 0 ? [requestedSubset] : chunkSubsets;
+};
+
+// src/base.ts
+var PlayfairDisplay_loadedFonts = {};
+var PlayfairDisplay_withResolvers = function() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+};
+var PlayfairDisplay_loadFontFaceOrTimeoutAfter20Seconds = (fontFace) => {
+  const timeout = PlayfairDisplay_withResolvers();
+  const int = setTimeout(() => {
+    timeout.reject(new Error("Timed out loading Google Font"));
+  }, 18000);
+  return Promise.race([
+    fontFace.load().then(() => {
+      clearTimeout(int);
+    }),
+    timeout.promise
+  ]);
+};
+var PlayfairDisplay_loadFonts = (meta, style, options) => {
+  const weightsAndSubsetsAreSpecified = Array.isArray(options?.weights) && Array.isArray(options?.subsets) && options.weights.length > 0 && options.subsets.length > 0;
+  if (PlayfairDisplay_NoReactInternals.ENABLE_V5_BREAKING_CHANGES && !weightsAndSubsetsAreSpecified) {
+    throw new Error("Loading Google Fonts without specifying weights and subsets is not supported in Remotion v5. Please specify the weights and subsets you need.");
+  }
+  const promises = [];
+  const styles = style ? [style] : Object.keys(meta.fonts);
+  let fontsLoaded = 0;
+  for (const style2 of styles) {
+    if (typeof FontFace === "undefined") {
+      continue;
+    }
+    if (!meta.fonts[style2]) {
+      throw new Error(`The font ${meta.fontFamily} does not have a style ${style2}`);
+    }
+    const weights = options?.weights ?? Object.keys(meta.fonts[style2]);
+    for (const weight of weights) {
+      if (!meta.fonts[style2][weight]) {
+        throw new Error(`The font ${meta.fontFamily} does not  have a weight ${weight} in style ${style2}`);
+      }
+      const requestedSubsets = options?.subsets ?? Object.keys(meta.fonts[style2][weight]);
+      const availableSubsetKeys = Object.keys(meta.fonts[style2][weight]);
+      const subsets = [
+        ...new Set(requestedSubsets.flatMap((requestedSubset) => PlayfairDisplay_resolveFontSubsetKeys({
+          availableSubsetKeys,
+          metaSubsets: meta.subsets,
+          requestedSubset
+        })))
+      ];
+      for (const subset of subsets) {
+        let font = meta.fonts[style2]?.[weight]?.[subset];
+        if (!font) {
+          throw new Error(`weight: ${weight} subset: ${subset} is not available for '${meta.fontFamily}'`);
+        }
+        let fontKey = `${meta.fontFamily}-${style2}-${weight}-${subset}`;
+        const previousPromise = PlayfairDisplay_loadedFonts[fontKey];
+        if (previousPromise) {
+          promises.push(previousPromise);
+          continue;
+        }
+        const baseLabel = `Fetching ${meta.fontFamily} font ${JSON.stringify({
+          style: style2,
+          weight,
+          subset
+        })}`;
+        const label = weightsAndSubsetsAreSpecified ? baseLabel : `${baseLabel}. This might be caused by loading too many font variations. Read more: https://www.remotion.dev/docs/troubleshooting/font-loading-errors#render-timeout-when-loading-google-fonts`;
+        const handle = PlayfairDisplay_delayRender(label, { timeoutInMilliseconds: 60000 });
+        fontsLoaded++;
+        const registerFont = (fontData) => {
+          PlayfairDisplay_NoReactInternals.registerFontFace({
+            ascentOverride: null,
+            descentOverride: null,
+            display: null,
+            featureSettings: null,
+            fontFamily: meta.fontFamily,
+            fontData,
+            fontUrl: font,
+            format: "woff2",
+            lineGapOverride: null,
+            style: style2,
+            weight,
+            stretch: null,
+            unicodeRange: meta.unicodeRanges[subset] ?? null,
+            variant: null
+          });
+        };
+        let attempts = 2;
+        const tryToLoad = () => {
+          return PlayfairDisplay_NoReactInternals.fetchFontData(font).then((fontData) => {
+            const fontFace = new FontFace(meta.fontFamily, fontData, {
+              weight,
+              style: style2,
+              unicodeRange: meta.unicodeRanges[subset]
+            });
+            return PlayfairDisplay_loadFontFaceOrTimeoutAfter20Seconds(fontFace).then(() => {
+              (options?.document ?? document).fonts.add(fontFace);
+              registerFont(fontData);
+              PlayfairDisplay_continueRender(handle);
+            });
+          }).catch((err) => {
+            if (attempts === 0) {
+              PlayfairDisplay_loadedFonts[fontKey] = undefined;
+              throw err;
+            }
+            attempts--;
+            return tryToLoad();
+          });
+        };
+        const promise = tryToLoad();
+        PlayfairDisplay_loadedFonts[fontKey] = promise;
+        promises.push(promise);
+      }
+    }
+    if (fontsLoaded > 20 && !options?.ignoreTooManyRequestsWarning) {
+      console.warn(`Made ${fontsLoaded} network requests to load fonts for ${meta.fontFamily}. Consider loading fewer weights and subsets by passing options to loadFont(). Disable this warning by passing "ignoreTooManyRequestsWarning: true" to "options".`);
+    }
+  }
+  return {
+    fontFamily: meta.fontFamily,
+    fonts: meta.fonts,
+    unicodeRanges: meta.unicodeRanges,
+    waitUntilDone: () => Promise.all(promises).then(() => {
+      return;
+    })
+  };
+};
+var PlayfairDisplay_loadVariableFonts = (meta, style, options) => {
+  if (!meta.variable) {
+    throw new Error(`${meta.fontFamily} is not available as a variable font`);
+  }
+  if (options.subsets.length === 0) {
+    throw new Error("Pass at least one subset to loadVariableFont()");
+  }
+  const fontFacesForStyle = meta.variable.fontFaces.filter((fontFace) => fontFace.style === style);
+  if (fontFacesForStyle.length === 0) {
+    throw new Error(`The variable font ${meta.fontFamily} does not have a style ${style}`);
+  }
+  const availableSubsetKeys = fontFacesForStyle.map((fontFace) => fontFace.subset);
+  const subsets = [
+    ...new Set(options.subsets.flatMap((requestedSubset) => PlayfairDisplay_resolveFontSubsetKeys({
+      availableSubsetKeys,
+      metaSubsets: meta.subsets,
+      requestedSubset
+    })))
+  ];
+  const promises = [];
+  for (const subset of subsets) {
+    if (typeof FontFace === "undefined") {
+      continue;
+    }
+    const font = fontFacesForStyle.find((fontFace) => fontFace.subset === subset);
+    if (!font) {
+      throw new Error(`subset: ${subset} is not available for the variable font '${meta.fontFamily}'`);
+    }
+    const fontKey = [
+      meta.fontFamily,
+      "variable",
+      font.style,
+      font.weight,
+      font.stretch,
+      font.subset,
+      font.src
+    ].join("-");
+    const previousPromise = PlayfairDisplay_loadedFonts[fontKey];
+    if (previousPromise) {
+      promises.push(previousPromise);
+      continue;
+    }
+    const handle = PlayfairDisplay_delayRender(`Fetching variable ${meta.fontFamily} font ${JSON.stringify({
+      style,
+      subset
+    })}`, { timeoutInMilliseconds: 60000 });
+    const descriptors = {
+      style: font.style,
+      weight: font.weight,
+      unicodeRange: font.unicodeRange
+    };
+    if (font.stretch) {
+      descriptors.stretch = font.stretch;
+    }
+    const registerFont = (fontData) => {
+      PlayfairDisplay_NoReactInternals.registerFontFace({
+        ascentOverride: null,
+        descentOverride: null,
+        display: null,
+        featureSettings: null,
+        fontFamily: meta.fontFamily,
+        fontData,
+        fontUrl: font.src,
+        format: "woff2",
+        lineGapOverride: null,
+        style: font.style,
+        weight: font.weight,
+        stretch: font.stretch,
+        unicodeRange: font.unicodeRange,
+        variant: null
+      });
+    };
+    let attempts = 2;
+    const tryToLoad = () => {
+      return PlayfairDisplay_NoReactInternals.fetchFontData(font.src).then((fontData) => {
+        const fontFace = new FontFace(meta.fontFamily, fontData, descriptors);
+        return PlayfairDisplay_loadFontFaceOrTimeoutAfter20Seconds(fontFace).then(() => {
+          (options.document ?? document).fonts.add(fontFace);
+          registerFont(fontData);
+          PlayfairDisplay_continueRender(handle);
+        });
+      }).catch((err) => {
+        if (attempts === 0) {
+          PlayfairDisplay_loadedFonts[fontKey] = undefined;
+          throw err;
+        }
+        attempts--;
+        return tryToLoad();
+      });
+    };
+    const promise = tryToLoad();
+    PlayfairDisplay_loadedFonts[fontKey] = promise;
+    promises.push(promise);
+  }
+  if (subsets.length > 20 && !options.ignoreTooManyRequestsWarning) {
+    console.warn(`Made ${subsets.length} network requests to load the variable font ${meta.fontFamily}. Consider loading fewer subsets. Disable this warning by passing "ignoreTooManyRequestsWarning: true" to "options".`);
+  }
+  return {
+    fontFamily: meta.fontFamily,
+    axes: meta.variable.axes,
+    waitUntilDone: () => Promise.all(promises).then(() => {
+      return;
+    })
+  };
+};
+
+// src/PlayfairDisplay.ts
+var PlayfairDisplay_getInfo = () => ({
+  fontFamily: "Playfair Display",
+  importName: "PlayfairDisplay",
+  version: "v40",
+  url: "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,600;0,700;0,800;0,900;1,400;1,500;1,600;1,700;1,800;1,900",
+  unicodeRanges: {
+    cyrillic: "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
+    vietnamese: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+    "latin-ext": "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+    latin: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD"
+  },
+  fonts: {
+    italic: {
+      "400": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      },
+      "500": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      },
+      "600": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      },
+      "700": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      },
+      "800": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      },
+      "900": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      }
+    },
+    normal: {
+      "400": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      },
+      "500": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      },
+      "600": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      },
+      "700": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      },
+      "800": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      },
+      "900": {
+        cyrillic: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2",
+        vietnamese: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2",
+        "latin-ext": "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2",
+        latin: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      }
+    }
+  },
+  subsets: ["cyrillic", "latin", "latin-ext", "vietnamese"],
+  variable: {
+    axes: {
+      wght: {
+        min: 400,
+        max: 900
+      }
+    },
+    fontFaces: [
+      {
+        style: "italic",
+        weight: "400 900",
+        stretch: null,
+        subset: "cyrillic",
+        unicodeRange: "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnohkk72xU.woff2"
+      },
+      {
+        style: "italic",
+        weight: "400 900",
+        stretch: null,
+        subset: "vietnamese",
+        unicodeRange: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojUk72xU.woff2"
+      },
+      {
+        style: "italic",
+        weight: "400 900",
+        stretch: null,
+        subset: "latin-ext",
+        unicodeRange: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnojEk72xU.woff2"
+      },
+      {
+        style: "italic",
+        weight: "400 900",
+        stretch: null,
+        subset: "latin",
+        unicodeRange: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFkD-vYSZviVYUb_rj3ij__anPXDTnogkk7.woff2"
+      },
+      {
+        style: "normal",
+        weight: "400 900",
+        stretch: null,
+        subset: "cyrillic",
+        unicodeRange: "U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTjYgFE_.woff2"
+      },
+      {
+        style: "normal",
+        weight: "400 900",
+        stretch: null,
+        subset: "vietnamese",
+        unicodeRange: "U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTPYgFE_.woff2"
+      },
+      {
+        style: "normal",
+        weight: "400 900",
+        stretch: null,
+        subset: "latin-ext",
+        unicodeRange: "U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTLYgFE_.woff2"
+      },
+      {
+        style: "normal",
+        weight: "400 900",
+        stretch: null,
+        subset: "latin",
+        unicodeRange: "U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD",
+        src: "https://fonts.gstatic.com/s/playfairdisplay/v40/nuFiD-vYSZviVYUb_rj3ij__anPXDTzYgA.woff2"
+      }
+    ],
+    url: "https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400..900;1,400..900"
+  }
+});
+var PlayfairDisplay_fontFamily = "Playfair Display";
+var PlayfairDisplay_loadFont = (style, options) => {
+  return PlayfairDisplay_loadFonts(PlayfairDisplay_getInfo(), style, options);
+};
+var PlayfairDisplay_loadVariableFont = (style, options) => {
+  return PlayfairDisplay_loadVariableFonts(PlayfairDisplay_getInfo(), style, options);
+};
+
+
+// EXTERNAL MODULE: ../../node_modules/react/index.js
+var react = __webpack_require__(4041);
+;// ./src/tokens/theme.tsx
+
+
+
+
+
+
+
+
+
+
+const systemFontFallback = "system-ui, sans-serif";
+const derivedColorAmount = 0.08;
+const mutedOpacity = 0.68;
+const googleFontLoaders = {
+  Inter: getInfo,
+  Montserrat: Montserrat_getInfo,
+  "Playfair Display": PlayfairDisplay_getInfo
+};
+const loadedFontFamilies = /* @__PURE__ */ new Map();
+const loadBrandFont = (fontName) => {
+  const cached = loadedFontFamilies.get(fontName);
+  if (cached) return cached;
+  const getInfo = googleFontLoaders[fontName];
+  if (!getInfo) return systemFontFallback;
+  const handle = (0,esm.delayRender)(`Loading ${fontName}`);
+  try {
+    const loadedFont = loadFontFromInfo(getInfo());
+    loadedFontFamilies.set(fontName, loadedFont.fontFamily);
+    loadedFont.waitUntilDone().then(
+      () => (0,esm.continueRender)(handle),
+      () => (0,esm.continueRender)(handle)
+    );
+    return loadedFont.fontFamily;
+  } catch {
+    (0,esm.continueRender)(handle);
+    return systemFontFallback;
+  }
+};
+const BrandThemeContext = (0,react.createContext)(null);
+const BrandThemeProvider = ({ brand, children }) => {
+  const theme = (0,react.useMemo)(
+    () => ({
+      colors: {
+        ...brand.colors,
+        surface: lighten(brand.colors.background, derivedColorAmount),
+        muted: withOpacity(brand.colors.text, mutedOpacity),
+        onPrimary: getReadableTextColor(brand.colors.primary, brand.colors.text),
+        onAccent: getReadableTextColor(brand.colors.accent, brand.colors.text)
+      },
+      fonts: {
+        heading: loadBrandFont(brand.fonts.heading),
+        body: loadBrandFont(brand.fonts.body)
+      },
+      motion: motionStyleMap[brand.motionStyle],
+      logoUrl: brand.logoUrl
+    }),
+    [brand]
+  );
+  return /* @__PURE__ */ (0,jsx_runtime.jsx)(BrandThemeContext.Provider, { value: theme, children });
+};
+const useBrand = () => {
+  const theme = (0,react.useContext)(BrandThemeContext);
+  if (!theme) throw new Error("useBrand must be used inside a BrandThemeProvider");
+  return theme;
+};
+
+;// ../../node_modules/@remotion/layout-utils/dist/esm/index.mjs
+// src/layouts/measure-text.ts
+var wordCache = new Map;
+var takeMeasurement = ({
+  text,
+  fontFamily,
+  fontSize,
+  fontWeight,
+  letterSpacing,
+  fontVariantNumeric,
+  additionalStyles,
+  textTransform
+}) => {
+  if (typeof document === "undefined") {
+    throw new Error("measureText() can only be called in a browser.");
+  }
+  const node = document.createElement("span");
+  if (fontFamily) {
+    node.style.fontFamily = fontFamily;
+  }
+  node.style.display = "inline-block";
+  node.style.position = "absolute";
+  node.style.top = `-10000px`;
+  node.style.whiteSpace = "pre";
+  node.style.fontSize = typeof fontSize === "string" ? fontSize : `${fontSize}px`;
+  if (additionalStyles) {
+    for (const key of Object.keys(additionalStyles)) {
+      node.style[key] = additionalStyles[key];
+    }
+  }
+  if (fontWeight) {
+    node.style.fontWeight = fontWeight.toString();
+  }
+  if (letterSpacing) {
+    node.style.letterSpacing = letterSpacing;
+  }
+  if (fontVariantNumeric) {
+    node.style.fontVariantNumeric = fontVariantNumeric;
+  }
+  if (textTransform) {
+    node.style.textTransform = textTransform;
+  }
+  node.innerText = text;
+  document.body.appendChild(node);
+  const computedFontFamily = window.getComputedStyle(node).fontFamily;
+  const boundingBox = node.getBoundingClientRect();
+  document.body.removeChild(node);
+  return {
+    boundingBox,
+    computedFontFamily
+  };
+};
+var measureText = ({
+  text,
+  fontFamily,
+  fontSize,
+  fontWeight,
+  letterSpacing,
+  fontVariantNumeric,
+  validateFontIsLoaded,
+  additionalStyles,
+  textTransform
+}) => {
+  const key = `${text}-${fontFamily}-${fontWeight}-${fontSize}-${letterSpacing}-${textTransform}-${JSON.stringify(additionalStyles)}`;
+  if (wordCache.has(key)) {
+    return wordCache.get(key);
+  }
+  const { boundingBox, computedFontFamily } = takeMeasurement({
+    fontFamily,
+    fontSize,
+    text,
+    fontVariantNumeric,
+    fontWeight,
+    letterSpacing,
+    additionalStyles,
+    textTransform
+  });
+  if (validateFontIsLoaded && text.trim().length > 0) {
+    const {
+      boundingBox: boundingBoxOfFallbackFont,
+      computedFontFamily: computedFallback
+    } = takeMeasurement({
+      fontFamily: null,
+      fontSize,
+      text,
+      fontVariantNumeric,
+      fontWeight,
+      letterSpacing,
+      additionalStyles,
+      textTransform
+    });
+    const sameAsFallbackFont = boundingBox.height === boundingBoxOfFallbackFont.height && boundingBox.width === boundingBoxOfFallbackFont.width;
+    if (sameAsFallbackFont && computedFallback !== computedFontFamily && new Set(text).size > 4) {
+      const err = [
+        `Called measureText() with "fontFamily": ${JSON.stringify(fontFamily)} but it looks like the font is not loaded at the time of calling.`,
+        `A measurement with the fallback font ${computedFallback} was taken and had the same dimensions, indicating that the browser used the fallback font.`,
+        "See https://remotion.dev/docs/layout-utils/best-practices for best practices."
+      ];
+      throw new Error(err.join(`
+`));
+    }
+  }
+  const result = { height: boundingBox.height, width: boundingBox.width };
+  wordCache.set(key, result);
+  return result;
+};
+
+// src/layouts/fill-text-box.ts
+var fillTextBox = ({
+  maxBoxWidth,
+  maxLines
+}) => {
+  const lines = new Array(maxLines).fill(0).map(() => []);
+  return {
+    add: ({
+      text,
+      fontFamily,
+      fontWeight,
+      fontSize,
+      letterSpacing,
+      fontVariantNumeric,
+      validateFontIsLoaded,
+      textTransform,
+      additionalStyles
+    }) => {
+      const lastLineIndex = lines.reduceRight((acc, curr, index) => {
+        if (acc === -1 && curr.length > 0) {
+          return index;
+        }
+        return acc;
+      }, -1);
+      const currentlyAt = lastLineIndex === -1 ? 0 : lastLineIndex;
+      const lineToUse = lines[currentlyAt];
+      const lineWithWord = [
+        ...lineToUse,
+        {
+          text,
+          fontFamily,
+          fontWeight,
+          fontSize,
+          letterSpacing,
+          fontVariantNumeric,
+          validateFontIsLoaded,
+          textTransform,
+          additionalStyles
+        }
+      ];
+      const widths = lineWithWord.map((w) => measureText(w).width);
+      const lineWidthWithWordAdded = widths.reduce((a, b) => a + b, 0);
+      if (Math.ceil(lineWidthWithWordAdded) <= maxBoxWidth) {
+        lines[currentlyAt].push({
+          text: lines[currentlyAt].length === 0 ? text.trimStart() : text,
+          fontFamily,
+          fontWeight,
+          fontSize,
+          letterSpacing,
+          textTransform,
+          fontVariantNumeric,
+          validateFontIsLoaded,
+          additionalStyles
+        });
+        return { exceedsBox: false, newLine: false };
+      }
+      if (currentlyAt === maxLines - 1) {
+        return { exceedsBox: true, newLine: false };
+      }
+      const wordForNewLine = {
+        text: text.trimStart(),
+        fontFamily,
+        fontWeight,
+        fontSize,
+        letterSpacing,
+        fontVariantNumeric,
+        validateFontIsLoaded,
+        textTransform,
+        additionalStyles
+      };
+      const wordAloneWidth = measureText(wordForNewLine).width;
+      if (Math.ceil(wordAloneWidth) > maxBoxWidth) {
+        return { exceedsBox: true, newLine: false };
+      }
+      lines[currentlyAt + 1] = [wordForNewLine];
+      return { exceedsBox: false, newLine: true };
+    }
+  };
+};
+// src/layouts/fit-text.ts
+var sampleSize = 100;
+var fitText = ({
+  text,
+  withinWidth,
+  fontFamily,
+  fontVariantNumeric,
+  fontWeight,
+  letterSpacing,
+  validateFontIsLoaded,
+  additionalStyles,
+  textTransform
+}) => {
+  const estimate = measureText({
+    text,
+    fontFamily,
+    fontSize: sampleSize,
+    fontWeight,
+    fontVariantNumeric,
+    letterSpacing,
+    validateFontIsLoaded,
+    textTransform,
+    additionalStyles
+  });
+  return { fontSize: withinWidth / estimate.width * sampleSize };
+};
+// src/layouts/fit-text-on-n-lines.ts
+var PRECISION = 100;
+var fitTextOnNLines = ({
+  text,
+  maxLines,
+  maxBoxWidth,
+  fontFamily,
+  fontWeight,
+  letterSpacing,
+  fontVariantNumeric,
+  validateFontIsLoaded,
+  textTransform,
+  additionalStyles,
+  maxFontSize
+}) => {
+  const minFontSize = 0.1;
+  let left = Math.floor(minFontSize * PRECISION);
+  let right = Math.floor((maxFontSize ?? 2000) * PRECISION);
+  let optimalFontSize = minFontSize;
+  let optimalLines = [];
+  while (left <= right) {
+    const mid = Math.floor((left + right) / 2);
+    const fontSize = mid / PRECISION;
+    const textBox = fillTextBox({
+      maxBoxWidth,
+      maxLines
+    });
+    const words = text.split(" ");
+    let exceedsBox = false;
+    let currentLine = 0;
+    const lines = [""];
+    for (const word of words) {
+      const result = textBox.add({
+        text: lines[currentLine].length === 0 ? word : " " + word,
+        fontFamily,
+        fontWeight,
+        fontSize,
+        letterSpacing,
+        fontVariantNumeric,
+        validateFontIsLoaded,
+        textTransform,
+        additionalStyles
+      });
+      if (result.exceedsBox) {
+        exceedsBox = true;
+        break;
+      }
+      if (result.newLine) {
+        lines.push("");
+        currentLine++;
+      }
+      lines[currentLine] += word + " ";
+    }
+    if (!exceedsBox && currentLine < maxLines) {
+      optimalFontSize = fontSize;
+      optimalLines = lines;
+      left = mid + 1;
+    } else {
+      right = mid - 1;
+    }
+  }
+  for (let i = 0;i < optimalLines.length; i++) {
+    optimalLines[i] = optimalLines[i].trimEnd();
+  }
+  return {
+    fontSize: optimalFontSize,
+    lines: optimalLines
+  };
+};
+
+
+;// ./src/tokens/typography.ts
+
+
+const typeScaleMultipliers = {
+  display: 0.08,
+  headline: 0.055,
+  title: 0.04,
+  body: 0.027,
+  caption: 0.02
+};
+const textMetrics = {
+  lineHeight: { tight: 0.95, normal: 1.35 },
+  letterSpacing: { tight: "-0.04em", normal: "0em" },
+  fontWeight: { regular: 400, semibold: 600, bold: 700 }
+};
+const getTypeScale = (width, height) => {
+  const shortSide = Math.min(width, height);
+  return Object.fromEntries(
+    Object.entries(typeScaleMultipliers).map(([name, multiplier]) => [name, shortSide * multiplier])
+  );
+};
+const fitFontSize = (text, maxWidth, maxFontSize, fontFamily) => Math.min(
+  maxFontSize,
+  fitText({ text, withinWidth: maxWidth, fontFamily, validateFontIsLoaded: false }).fontSize
+);
+
+;// ./src/tokens/index.ts
+
+
+
+
+
+
+
+;// ./src/TokenPreview.tsx
+
+
+
+
+
+
+
+const tokenPreviewPropsSchema = brandKitSchema;
+const previewBrands = {
+  light: brandKitSchema.parse(fixtures_brand_kit_namespaceObject),
+  dark: brandKitSchema.parse(brand_kit_dark_namespaceObject)
+};
+const tokenPreviewDurationInFrames = standardDurations.hold * previewLayoutTokens.springDemoCount;
+const colorNames = ["primary", "secondary", "accent", "background", "text"];
+const typeNames = ["display", "headline", "title", "body", "caption"];
+const springNames = Object.keys(springPresets);
+const TokenPreviewContent = () => {
+  const brand = useBrand();
+  const { fps } = (0,esm.useVideoConfig)();
+  const frame = (0,esm.useCurrentFrame)();
+  const { height, safeArea, spacing, width } = useLayout();
+  const typeScale = getTypeScale(width, height);
+  const contentWidth = width - safeArea.left - safeArea.right;
+  const contentHeight = height - safeArea.top - safeArea.bottom;
+  const headingSize = fitFontSize("Design tokens", contentWidth, typeScale.display, brand.fonts.heading);
+  const springColors = [brand.colors.primary, brand.colors.secondary, brand.colors.accent];
+  return /* @__PURE__ */ (0,jsx_runtime.jsx)(
+    "main",
+    {
+      style: {
+        backgroundColor: brand.colors.background,
+        color: brand.colors.text,
+        fontFamily: brand.fonts.body,
+        height: "100%",
+        padding: `${safeArea.top}px ${safeArea.right}px ${safeArea.bottom}px ${safeArea.left}px`,
+        width: "100%"
+      },
+      children: /* @__PURE__ */ (0,jsx_runtime.jsxs)("div", { style: { display: "flex", flexDirection: "column", gap: spacing.lg, height: contentHeight }, children: [
+        /* @__PURE__ */ (0,jsx_runtime.jsx)("header", { children: /* @__PURE__ */ (0,jsx_runtime.jsx)(
+          "div",
+          {
+            style: {
+              fontFamily: brand.fonts.heading,
+              fontSize: headingSize,
+              fontWeight: textMetrics.fontWeight.bold,
+              letterSpacing: textMetrics.letterSpacing.tight,
+              lineHeight: textMetrics.lineHeight.tight
+            },
+            children: brand.logoUrl ? `${brand.motion.transitionType} design tokens` : "Design tokens"
+          }
+        ) }),
+        /* @__PURE__ */ (0,jsx_runtime.jsx)("section", { style: { display: "flex", flexWrap: "wrap", gap: spacing.sm }, children: colorNames.map((name) => {
+          const color = brand.colors[name];
+          const labelColor = getReadableTextColor(color, brand.colors.text);
+          const contrastPasses = getContrastRatio(color, labelColor) >= contrastMinimum;
+          return /* @__PURE__ */ (0,jsx_runtime.jsxs)(
+            "div",
+            {
+              style: {
+                backgroundColor: color,
+                borderColor: brand.colors.muted,
+                borderRadius: spacing.sm * previewLayoutTokens.cardRadiusMultiplier,
+                borderStyle: "solid",
+                borderWidth: previewLayoutTokens.borderWidth,
+                color: labelColor,
+                flex: `${previewLayoutTokens.sectionGapMultiplier} ${previewLayoutTokens.sectionGapMultiplier} ${spacing.sm * previewLayoutTokens.swatchMinWidthMultiplier}px`,
+                fontSize: typeScale.caption,
+                padding: spacing.sm
+              },
+              children: [
+                contrastPasses ? "\u2713 " : "",
+                name
+              ]
+            },
+            name
+          );
+        }) }),
+        /* @__PURE__ */ (0,jsx_runtime.jsx)("section", { style: { display: "flex", flexDirection: "column", gap: spacing.xs }, children: typeNames.map((name) => /* @__PURE__ */ (0,jsx_runtime.jsxs)(
+          "div",
+          {
+            style: {
+              fontFamily: name === "body" || name === "caption" ? brand.fonts.body : brand.fonts.heading,
+              fontSize: typeScale[name],
+              fontWeight: name === "body" || name === "caption" ? textMetrics.fontWeight.regular : textMetrics.fontWeight.semibold,
+              letterSpacing: name === "display" ? textMetrics.letterSpacing.tight : textMetrics.letterSpacing.normal,
+              lineHeight: name === "display" ? textMetrics.lineHeight.tight : textMetrics.lineHeight.normal
+            },
+            children: [
+              name,
+              " type scale"
+            ]
+          },
+          name
+        )) }),
+        /* @__PURE__ */ (0,jsx_runtime.jsx)("section", { style: { display: "flex", gap: spacing.xs }, children: Object.entries(spacing).map(([name, value]) => /* @__PURE__ */ (0,jsx_runtime.jsxs)("div", { style: { display: "flex", flex: previewLayoutTokens.sectionGapMultiplier, flexDirection: "column", gap: spacing.xs }, children: [
+          /* @__PURE__ */ (0,jsx_runtime.jsx)("div", { style: { backgroundColor: brand.colors.secondary, height: value } }),
+          /* @__PURE__ */ (0,jsx_runtime.jsx)("span", { style: { fontSize: typeScale.caption }, children: name })
+        ] }, name)) }),
+        /* @__PURE__ */ (0,jsx_runtime.jsx)("section", { style: { display: "flex", flexDirection: "column", gap: spacing.sm }, children: springNames.map((preset, index) => {
+          const progress = enterProgress({
+            frame,
+            fps,
+            delay: staggerDelay(index, staggerPresets[brand.motion.staggerPreset]),
+            preset
+          });
+          return /* @__PURE__ */ (0,jsx_runtime.jsxs)("div", { style: { fontSize: typeScale.caption }, children: [
+            /* @__PURE__ */ (0,jsx_runtime.jsx)("div", { children: preset }),
+            /* @__PURE__ */ (0,jsx_runtime.jsx)("div", { style: { backgroundColor: brand.colors.muted, height: spacing.xs }, children: /* @__PURE__ */ (0,jsx_runtime.jsx)(
+              "div",
+              {
+                style: {
+                  backgroundColor: springColors[index],
+                  height: spacing.xs,
+                  transform: `translateX(${progress * spacing.xxl}px)`,
+                  width: `${progress * percentageScale}%`
+                }
+              }
+            ) })
+          ] }, preset);
+        }) })
+      ] })
+    }
+  );
+};
+const TokenPreview = (brand) => /* @__PURE__ */ (0,jsx_runtime.jsx)(BrandThemeProvider, { brand, children: /* @__PURE__ */ (0,jsx_runtime.jsx)(TokenPreviewContent, {}) });
+
 ;// ./src/Root.tsx
+
+
 
 
 
@@ -663,19 +2740,47 @@ const defaultProps = {
   }
 };
 const RemotionRoot = () => {
-  return /* @__PURE__ */ (0,jsx_runtime.jsx)(
-    esm.Composition,
-    {
-      id: "TestComposition",
-      component: TestComposition,
-      durationInFrames: 150,
-      fps: 30,
-      width: 1280,
-      height: 720,
-      defaultProps,
-      schema: testCompositionSchema
-    }
-  );
+  return /* @__PURE__ */ (0,jsx_runtime.jsxs)(jsx_runtime.Fragment, { children: [
+    /* @__PURE__ */ (0,jsx_runtime.jsx)(
+      esm.Composition,
+      {
+        id: "TestComposition",
+        component: TestComposition,
+        durationInFrames: 150,
+        fps: 30,
+        width: 1280,
+        height: 720,
+        defaultProps,
+        schema: testCompositionSchema
+      }
+    ),
+    /* @__PURE__ */ (0,jsx_runtime.jsx)(
+      esm.Composition,
+      {
+        id: "TokenPreview9x16",
+        component: TokenPreview,
+        durationInFrames: tokenPreviewDurationInFrames,
+        fps: standardFps,
+        width: aspectRatioConfigs["9:16"].width,
+        height: aspectRatioConfigs["9:16"].height,
+        defaultProps: previewBrands.light,
+        schema: tokenPreviewPropsSchema
+      }
+    ),
+    /* @__PURE__ */ (0,jsx_runtime.jsx)(
+      esm.Composition,
+      {
+        id: "TokenPreview16x9",
+        component: TokenPreview,
+        durationInFrames: tokenPreviewDurationInFrames,
+        fps: standardFps,
+        width: aspectRatioConfigs["16:9"].width,
+        height: aspectRatioConfigs["16:9"].height,
+        defaultProps: previewBrands.dark,
+        schema: tokenPreviewPropsSchema
+      }
+    )
+  ] });
 };
 
 
@@ -50685,7 +52790,7 @@ const error = () => {
 /******/ 	// This entry module is referenced by other modules so it can't be inlined
 /******/ 	__webpack_require__(5460);
 /******/ 	__webpack_require__(6252);
-/******/ 	__webpack_require__(8675);
+/******/ 	__webpack_require__(4184);
 /******/ 	__webpack_require__(3257);
 /******/ 	var __webpack_exports__ = __webpack_require__(9681);
 /******/ 	

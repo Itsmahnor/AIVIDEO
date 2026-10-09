@@ -1,1 +1,1 @@
-Schema fixture data belongs in this folder.
+Sample payloads that must remain valid against the exported schema contracts.

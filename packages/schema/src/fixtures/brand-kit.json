@@ -1,0 +1,21 @@
+{
+  "name": "Harbor & Key Realty",
+  "logoUrl": "https://assets.example.com/harbor-key-logo.svg",
+  "colors": {
+    "primary": "#123456",
+    "secondary": "#2C5F7C",
+    "accent": "#F4A261",
+    "background": "#F8FAFC",
+    "text": "#102A43"
+  },
+  "fonts": {
+    "heading": "Playfair Display",
+    "body": "Inter"
+  },
+  "tone": "Confident, warm, and local",
+  "motionStyle": "calm",
+  "rules": {
+    "dos": ["Lead with the property lifestyle", "Use concise benefit-led language"],
+    "donts": ["Use pressure tactics", "Overpromise property features"]
+  }
+}

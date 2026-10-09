@@ -1,0 +1,34 @@
+{
+  "version": 1,
+  "meta": {
+    "fps": 30,
+    "width": 1080,
+    "height": 1920
+  },
+  "scenes": [
+    {
+      "id": "intro",
+      "template": "headline",
+      "durationInFrames": 90,
+      "props": {
+        "text": "Welcome home"
+      },
+      "transitionOut": {
+        "type": "fade",
+        "durationInFrames": 10
+      }
+    },
+    {
+      "id": "outro",
+      "template": "cta",
+      "durationInFrames": 60,
+      "props": {
+        "text": "Book a viewing"
+      }
+    }
+  ],
+  "audio": {
+    "voiceoverUrl": "/content/demo-project/audio/vo.mp3",
+    "musicUrl": "/content/demo-project/audio/music.mp3"
+  }
+}

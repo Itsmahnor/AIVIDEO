@@ -1,0 +1,21 @@
+{
+  "name": "Nightfall Properties",
+  "logoUrl": "https://assets.example.com/nightfall-properties-logo.svg",
+  "colors": {
+    "primary": "#7DD3FC",
+    "secondary": "#38BDF8",
+    "accent": "#FBBF24",
+    "background": "#0F172A",
+    "text": "#F8FAFC"
+  },
+  "fonts": {
+    "heading": "Montserrat",
+    "body": "Inter"
+  },
+  "tone": "Polished, exclusive, and direct",
+  "motionStyle": "corporate",
+  "rules": {
+    "dos": ["Use measured confidence", "Keep layouts spacious"],
+    "donts": ["Use cluttered visual treatments", "Use casual slang"]
+  }
+}

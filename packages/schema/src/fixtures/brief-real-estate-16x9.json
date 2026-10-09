@@ -1,0 +1,26 @@
+{
+  "videoType": "real-estate-listing",
+  "goal": "Promote an open-house event",
+  "aspectRatio": "16:9",
+  "durationSec": 45,
+  "audience": "Move-up buyers looking for waterfront space",
+  "keyMessage": "Waterfront living with room to entertain.",
+  "cta": "Visit the open house this Saturday",
+  "assetUrls": ["https://assets.example.com/listings/harbor-loft/living-room.jpg"],
+  "voiceover": false,
+  "details": {
+    "listingType": "For sale",
+    "propertyType": "Apartment",
+    "price": 725000,
+    "currency": "USD",
+    "location": "Harbor District, Seattle",
+    "bedrooms": 2,
+    "bathrooms": 2,
+    "areaSize": 112,
+    "areaUnit": "sqm",
+    "keyFeatures": ["Water views", "Rooftop terrace", "Secure parking"],
+    "agentName": "Maya Chen",
+    "agentPhone": "+1-206-555-0142",
+    "agencyName": "Harbor & Key Realty"
+  }
+}
