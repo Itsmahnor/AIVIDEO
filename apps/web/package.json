@@ -8,6 +8,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-video-studio/schema": "*",
     "@ai-video-studio/video": "*",
     "@remotion/player": "4.0.534",
     "@vitejs/plugin-react": "^4.3.4",
@@ -17,7 +18,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "tailwind-merge": "^2.6.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@types/node": "^22.10.7",

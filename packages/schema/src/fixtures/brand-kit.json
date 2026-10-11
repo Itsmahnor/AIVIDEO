@@ -1,21 +1,21 @@
 {
-  "name": "Harbor & Key Realty",
-  "logoUrl": "https://assets.example.com/harbor-key-logo.svg",
+  "name": "Flowly",
+  "logoUrl": "samples/logos/flowly.svg",
   "colors": {
-    "primary": "#123456",
-    "secondary": "#2C5F7C",
-    "accent": "#F4A261",
+    "primary": "#4F46E5",
+    "secondary": "#0EA5E9",
+    "accent": "#F59E0B",
     "background": "#F8FAFC",
-    "text": "#102A43"
+    "text": "#0F172A"
   },
   "fonts": {
-    "heading": "Playfair Display",
+    "heading": "Plus Jakarta Sans",
     "body": "Inter"
   },
-  "tone": "Confident, warm, and local",
+  "tone": "Friendly, clear and confident",
   "motionStyle": "calm",
   "rules": {
-    "dos": ["Lead with the property lifestyle", "Use concise benefit-led language"],
-    "donts": ["Use pressure tactics", "Overpromise property features"]
+    "dos": ["Use plain words", "Lead with the benefit"],
+    "donts": ["No exclamation marks", "No jargon"]
   }
 }

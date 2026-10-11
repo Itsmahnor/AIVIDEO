@@ -1,21 +1,21 @@
 {
-  "name": "Nightfall Properties",
-  "logoUrl": "https://assets.example.com/nightfall-properties-logo.svg",
+  "name": "Pulse Analytics",
+  "logoUrl": "samples/logos/pulse.svg",
   "colors": {
-    "primary": "#7DD3FC",
-    "secondary": "#38BDF8",
-    "accent": "#FBBF24",
-    "background": "#0F172A",
-    "text": "#F8FAFC"
+    "primary": "#8B5CF6",
+    "secondary": "#22D3EE",
+    "accent": "#34D399",
+    "background": "#0B1020",
+    "text": "#F1F5F9"
   },
   "fonts": {
-    "heading": "Montserrat",
+    "heading": "Space Grotesk",
     "body": "Inter"
   },
-  "tone": "Polished, exclusive, and direct",
-  "motionStyle": "corporate",
+  "tone": "Sharp, technical and modern",
+  "motionStyle": "energetic",
   "rules": {
-    "dos": ["Use measured confidence", "Keep layouts spacious"],
-    "donts": ["Use cluttered visual treatments", "Use casual slang"]
+    "dos": ["Use concrete nouns", "Keep sentences short"],
+    "donts": ["No buzzwords like revolutionary"]
   }
 }

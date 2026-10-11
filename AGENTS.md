@@ -23,3 +23,14 @@
 
 - Keep files small and fully typed.
 - Add a short README note to each package.
+
+## Product
+
+- This tool turns a Brand Kit + user selections + a prompt + optional uploaded screenshots into a SaaS explainer video.
+- The AI outputs SceneJSON that references registered templates. It never writes code.
+- `packages/schema/src/templates.ts` is the template contract: props, limits and `.describe()` text live there and nowhere else. Scene components import their prop types from it.
+- All images go through `resolveAsset()`. A scene with a missing image falls back to `MockUI`.
+- Every template prop has a Zod `.describe()` and a length limit. The AI reads them.
+- SceneJSON is the source of truth and is never flattened.
+- There is no voiceover: on-screen text must carry the story.
+- Skills live in `apps/api/src/skills`. Fix bad AI output by editing a skill or a template's `whenToUse`, not by hard-coding.

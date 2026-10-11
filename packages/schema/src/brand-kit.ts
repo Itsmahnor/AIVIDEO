@@ -4,7 +4,7 @@ const hexColorSchema = z.string().regex(/^#[0-9A-Fa-f]{6}$/, 'Expected a 6-digit
 
 export const brandKitSchema = z.object({
   name: z.string().min(1),
-  logoUrl: z.string().url(),
+  logoUrl: z.string().describe('Absolute URL or a path inside packages/video/public'),
   colors: z.object({
     primary: hexColorSchema,
     secondary: hexColorSchema,

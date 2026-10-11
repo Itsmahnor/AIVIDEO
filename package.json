@@ -12,7 +12,9 @@
     "studio": "npm --workspace @ai-video-studio/video run studio",
     "build": "npm run build --workspaces --if-present",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "check:versions": "node scripts/check-remotion-versions.mjs"
+    "check:versions": "node scripts/check-remotion-versions.mjs",
+    "sync:playground": "node scripts/sync-playground.mjs",
+    "test": "npm run test --workspaces --if-present"
   },
   "engines": {
     "node": ">=20"

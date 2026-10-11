@@ -19,7 +19,9 @@ export const testCompositionSchema = z.object({
 
 export type TestCompositionProps = z.infer<typeof testCompositionSchema>;
 
+export * from './assets';
 export * from './brand-kit';
 export * from './brief';
 export * from './niche';
 export * from './scene-json';
+export * from './templates';

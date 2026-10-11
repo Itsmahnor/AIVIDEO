@@ -1,5 +1,17 @@
 import {loadFontFromInfo} from '@remotion/google-fonts/from-info';
 import {getInfo as getInterInfo} from '@remotion/google-fonts/Inter';
+import {getInfo as getDmSansInfo} from '@remotion/google-fonts/DMSans';
+import {getInfo as getLatoInfo} from '@remotion/google-fonts/Lato';
+import {getInfo as getManropeInfo} from '@remotion/google-fonts/Manrope';
+import {getInfo as getNunitoInfo} from '@remotion/google-fonts/Nunito';
+import {getInfo as getOutfitInfo} from '@remotion/google-fonts/Outfit';
+import {getInfo as getPlusJakartaSansInfo} from '@remotion/google-fonts/PlusJakartaSans';
+import {getInfo as getPoppinsInfo} from '@remotion/google-fonts/Poppins';
+import {getInfo as getRobotoInfo} from '@remotion/google-fonts/Roboto';
+import {getInfo as getRubikInfo} from '@remotion/google-fonts/Rubik';
+import {getInfo as getSoraInfo} from '@remotion/google-fonts/Sora';
+import {getInfo as getSpaceGroteskInfo} from '@remotion/google-fonts/SpaceGrotesk';
+import {getInfo as getWorkSansInfo} from '@remotion/google-fonts/WorkSans';
 import {getInfo as getMontserratInfo} from '@remotion/google-fonts/Montserrat';
 import {getInfo as getPlayfairDisplayInfo} from '@remotion/google-fonts/PlayfairDisplay';
 import type {BrandKit} from '@ai-video-studio/schema';
@@ -17,11 +29,26 @@ type FontInfoLoader = () => FontInfo;
 
 const googleFontLoaders: Record<string, FontInfoLoader> = {
   Inter: getInterInfo,
+  'DM Sans': getDmSansInfo,
+  'Lato': getLatoInfo,
+  'Manrope': getManropeInfo,
+  'Nunito': getNunitoInfo,
+  'Outfit': getOutfitInfo,
+  'Plus Jakarta Sans': getPlusJakartaSansInfo,
+  'Poppins': getPoppinsInfo,
+  'Roboto': getRobotoInfo,
+  'Rubik': getRubikInfo,
+  'Sora': getSoraInfo,
+  'Space Grotesk': getSpaceGroteskInfo,
+  'Work Sans': getWorkSansInfo,
   Montserrat: getMontserratInfo,
   'Playfair Display': getPlayfairDisplayInfo,
 };
 
 const loadedFontFamilies = new Map<string, string>();
+
+/** Font names the brand theme can load. Anything else falls back to a system font. */
+export const supportedFontNames: string[] = Object.keys(googleFontLoaders);
 
 export const loadBrandFont = (fontName: string): string => {
   const cached = loadedFontFamilies.get(fontName);
